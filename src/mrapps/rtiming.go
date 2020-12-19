@@ -7,7 +7,7 @@ package main
 // go build -buildmode=plugin rtiming.go
 //
 
-import "../mr"
+import "mit.edu/filosfino/6.824/src/mr"
 import "fmt"
 import "os"
 import "syscall"

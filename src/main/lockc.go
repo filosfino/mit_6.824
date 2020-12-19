@@ -4,7 +4,7 @@ package main
 // see comments in lockd.go
 //
 
-import "lockservice"
+import "github.com/hahoney/MRServer/golang/lockservice"
 import "os"
 import "fmt"
 

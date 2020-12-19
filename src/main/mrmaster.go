@@ -9,7 +9,7 @@ package main
 // Please do not change this file.
 //
 
-import "../mr"
+import "mit.edu/filosfino/6.824/src/mr"
 import "time"
 import "os"
 import "fmt"

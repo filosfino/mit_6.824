@@ -8,7 +8,7 @@ package raft
 // test with the original before submitting.
 //
 
-import "../labrpc"
+import "mit.edu/filosfino/6.824/src/labrpc"
 import "log"
 import "sync"
 import "testing"

@@ -174,7 +174,7 @@ func MakeMaster(files []string, nReduce int) *Master {
 	m.nReduce = nReduce
 	m.nMap = len(files)
 	m.Files = files
-	m.taskChan = make(chan TaskData)
+	m.taskChan = make(chan TaskData, 10)
 	m.Tasks = make([]TaskWithStatus, m.nMap+m.nReduce)
 	// m.mutex = sync.Mutex{}
 	m.InitTaskChan()

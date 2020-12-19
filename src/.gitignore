@@ -8,3 +8,7 @@ mrtmp.*
 *.so
 
 mr-*
+
+/main/mrmaster
+/main/mrsequential
+/main/mrworker

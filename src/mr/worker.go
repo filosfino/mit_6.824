@@ -24,7 +24,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	for {
 		task := claimTask()
 		if task == nil {
-			fmt.Printf("task 已处理完毕\n")
+			fmt.Printf("[worker] job finished, exiting\n")
 			return
 		} else if task.T == Map {
 			err := doMap(mapf, task)

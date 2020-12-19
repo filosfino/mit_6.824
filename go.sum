@@ -1,0 +1,6 @@
+github.com/google/btree v1.0.0 h1:0udJVsspx3VBr5FwtLhQQtuAsVc79tTq0ocGIPAU6qo=
+github.com/google/btree v1.0.0/go.mod h1:lNA+9X1NB3Zf8V7Ke586lFgjr2dZNuvo3lPJSGZ5JPQ=
+github.com/hahoney/MRServer v0.0.0-20150526231509-057141a440cd h1:2sLqdkuvw2IE4Rdg+qZLEEnP1hYF6R9Tq2hP6b3wq6s=
+github.com/hahoney/MRServer v0.0.0-20150526231509-057141a440cd/go.mod h1:0GFtF3YLaAXtPX7j0sa4Z7PDcq+7I+/n1kl9XH6F4uo=
+github.com/peterbourgon/diskv v2.0.1+incompatible h1:UBdAOUP5p4RWqPBg048CAvpKN+vxiaj6gdUUzhl4XmI=
+github.com/peterbourgon/diskv v2.0.1+incompatible/go.mod h1:uqqh8zWWbv1HBMNONnaR/tNboyR3/BZd58JJSHlUSCU=

@@ -35,7 +35,7 @@ type TaskResult struct {
 }
 
 type TaskDoneArgs struct {
-	TaskData
+	*TaskData
 	Success bool
 }
 
@@ -65,7 +65,7 @@ type ClaimTaskArgs struct {
 }
 
 type ClaimTaskReply struct {
-	TaskData
+	*TaskData
 	Done bool
 }
 

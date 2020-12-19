@@ -96,7 +96,7 @@ func (m *Master) HandleClaimTask(args *ClaimTaskArgs, reply *ClaimTaskReply) err
 				m.RescheduleTask(task.Id)
 			}
 		}()
-		reply.TaskData = *m.Tasks[task.Id].TaskData
+		reply.TaskData = m.Tasks[task.Id].TaskData
 		reply.Done = false
 	}
 	return nil

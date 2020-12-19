@@ -123,13 +123,13 @@ func claimTask() *TaskData {
 	if reply.Done {
 		return nil
 	}
-	fmt.Printf("[worker] received claming task reply %v\n", *reply)
-	return &reply.TaskData
+	fmt.Printf("[worker] received claming task reply %v\n", *reply.TaskData)
+	return reply.TaskData
 }
 
 func reportTaskDone(task *TaskData) error {
 	args := &TaskDoneArgs{
-		TaskData: *task,
+		TaskData: task,
 		Success:  true,
 	}
 	reply := &TaskDoneReply{}

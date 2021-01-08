@@ -11,4 +11,4 @@ worker:
 # 	git clean -fd && cd src/main && sh test-mr.sh
 
 test:
-	git clean -fd && cd src/raft && go test -run 2A
+	git clean -fd && cd src/raft && go test -run 2A -race

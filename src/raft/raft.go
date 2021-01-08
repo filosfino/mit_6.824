@@ -94,7 +94,6 @@ type Raft struct {
 func (rf *Raft) GetState() (int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	DPrintf("[%d]: GetState: %s", rf.me, rf.role)
 	return rf.currentTerm, rf.role == Leader
 }
 
@@ -113,7 +112,6 @@ func (rf *Raft) persist() {
 
 // restore previously persisted state.
 func (rf *Raft) readPersist(data []byte) {
-	DPrintf("[%d] reading persist state: %s", rf.me, data)
 	if data == nil || len(data) < 1 { // bootstrap without any state?
 		return
 	}
@@ -153,7 +151,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	defer rf.cond.L.Unlock()
 	defer rf.electionTimer.Reset(randTime(rf.election_interval))
 
-	DPrintf("[%d] %s <- voteRequest <- %d: %v", rf.me, rf.role, args.CandidateId, args)
 	if args.Term < rf.currentTerm {
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = false
@@ -197,9 +194,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // the struct itself.
 //
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	DPrintf("[%d] -> requestVote -> %d", rf.me, server)
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	DPrintf("[%d] <- requestVote <- %d, %v", rf.me, server, reply)
 	return ok
 }
 
@@ -220,11 +215,10 @@ type AppendEntriesReply struct {
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 
-	rf.cond.L.Lock()
-	defer rf.cond.L.Unlock()
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	defer rf.electionTimer.Reset(randTime(rf.election_interval))
 
-	DPrintf("[%d] %s <- appendEntries: %v", rf.me, rf.role, args)
 	// TODO: 实现
 	if args.Term >= rf.currentTerm {
 		rf.currentTerm = args.Term
@@ -240,9 +234,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
-	DPrintf("[%d] -> appendEntries -> %d, %v", rf.me, server, args)
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
-	DPrintf("[%d] <- appendEntries <- %d, %v", rf.me, server, reply)
 	return ok
 }
 
@@ -261,7 +253,6 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 func (rf *Raft) Start(
 	command interface{},
 ) (int, int, bool) {
-	DPrintf("[%d] starting", rf.me)
 	term, isLeader := rf.GetState()
 	index := rf.commitIndex + 1
 
@@ -281,7 +272,6 @@ func (rf *Raft) Start(
 func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	// Your code here, if desired.
-	DPrintf("[%d] %s <- killSignal", rf.me, rf.role)
 }
 
 func (rf *Raft) killed() bool {
@@ -291,7 +281,6 @@ func (rf *Raft) killed() bool {
 
 func (rf *Raft) KickOffElection() {
 	rf.cond.L.Lock()
-	DPrintf("[%d] >>> starting a new election %d", rf.me, rf.currentTerm+1)
 	// 改自身状态
 	voteCount := 0
 	rf.votedFor = &rf.me
@@ -349,21 +338,22 @@ func (rf *Raft) KickOffElection() {
 		vote := <-requestVoteFinishedChan
 		if vote {
 			voteCount++
-			if requestVoteArgs.Term == rf.currentTerm && rf.role != Leader {
+			term, isLeader := rf.GetState()
+			if requestVoteArgs.Term == term && !isLeader {
 				if voteCount >= successThreshold {
 					rf.mu.Lock()
 					defer rf.mu.Unlock()
 
 					// 成功
 					rf.role = Leader
-					DPrintf("[%d] [%d] collected %d votes >>> %s", rf.me, requestVoteArgs.Term, voteCount, rf.role)
-					DPrintf("[%d] starting heartbeat", rf.me)
 
 					go func() {
 						heartbeatIndex := 0
-						for rf.role == Leader && !rf.killed() {
-							DPrintf("[%d] [%d] -> heartbeat %d", rf.me, rf.currentTerm, heartbeatIndex)
-							term := rf.currentTerm
+						for !rf.killed() {
+							term, isLeader := rf.GetState()
+							if !isLeader {
+								break
+							}
 							for i := range rf.peers {
 								if i == rf.me {
 									continue
@@ -391,7 +381,6 @@ func (rf *Raft) KickOffElection() {
 							time.Sleep(time.Duration(rf.heartbeat_interval) * time.Millisecond)
 							heartbeatIndex++
 						}
-						DPrintf("[%d] >>> no more heartbeat, since i'm not a leader any more, quiting heartbeat", rf.me)
 					}()
 					return
 				}
@@ -401,7 +390,6 @@ func (rf *Raft) KickOffElection() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	rf.role = Follower
-	DPrintf("[%d] [%d] collected %d votes >>> %s", rf.me, requestVoteArgs.Term, voteCount, rf.role)
 }
 
 // the service or tester wants to create a Raft server. the ports
@@ -419,7 +407,6 @@ func Make(
 	persister *Persister,
 	applyCh chan ApplyMsg,
 ) *Raft {
-	DPrintf("[%d] initing", me)
 	rf := &Raft{}
 
 	rf.heartbeat_interval = 300
@@ -457,7 +444,9 @@ func Make(
 			if !rf.killed() {
 				rf.KickOffElection()
 			}
+			rf.mu.Lock()
 			rf.electionTimer.Reset(randTime(rf.election_interval))
+			rf.mu.Unlock()
 		}
 	}()
 

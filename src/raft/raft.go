@@ -167,7 +167,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 type AppendEntriesArgs struct {
 	Term     int
-	LeaderId int
+	LeaderID int
 
 	PrevLogIndex int
 	PrevLogTerm  int
@@ -199,9 +199,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	defer rf.mu.Unlock()
 	defer rf.electionTimer.Reset(randTime(rf.electionInterval))
 
-	DPrintf("%d@%d <- %d@%d ℹ️ %v", rf.me, rf.currentTerm, args.LeaderId, args.Term, args)
+	DPrintf("%d@%d <- %d@%d ℹ️ %+v", rf.me, rf.currentTerm, args.LeaderID, args.Term, args)
 
 	reply.Term = rf.currentTerm
+	reply.Success = true
 
 	// 发送者不足以成为 leader -> deny
 	if args.Term < rf.currentTerm {
@@ -216,37 +217,69 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.votedFor = nil
 	}
 
-	// 处理信息
-	if args.PrevLogIndex == -1 {
-		// 回退到了起点
-		reply.Success = true
-		rf.logs = args.Entries
-		return
-	} else if len(rf.logs)-1 < args.PrevLogIndex {
-		// PrevLogIndex 尚不存在
-		reply.Success = false
-		return
-	} else {
-		// PrevLogIndex 存在
-		localLog := rf.logs[args.PrevLogIndex]
-		termMatch := localLog.Term == args.PrevLogTerm
-		if termMatch {
-			// 追加后面的
-			rf.logs = append(rf.logs[:args.PrevLogIndex+1], args.Entries...)
+	if len(args.Entries) > 0 {
+		// 处理信息
+		if args.PrevLogIndex == -1 {
+			// 回退到了起点
 			reply.Success = true
-		} else {
-			// 不匹配的话删除不匹配的
-			rf.logs = rf.logs[:args.PrevLogIndex]
+			rf.logs = args.Entries
+		} else if len(rf.logs)-1 < args.PrevLogIndex {
+			// PrevLogIndex 尚不存在
 			reply.Success = false
-		}
-		if args.LeaderCommit > rf.commitIndex {
-			rf.commitIndex = Min(args.LeaderCommit, len(rf.logs)-1)
-			for rf.commitIndex > rf.lastApplied {
-				rf.lastApplied++
-				rf.applyCh <- ApplyMsg{true, rf.logs[rf.lastApplied].Command, rf.lastApplied}
+		} else {
+			// PrevLogIndex 存在
+			localLog := rf.logs[args.PrevLogIndex]
+			termMatch := localLog.Term == args.PrevLogTerm
+			if termMatch {
+				// 追加后面的
+				rf.logs = append(rf.logs[:args.PrevLogIndex+1], args.Entries...)
+				reply.Success = true
+			} else {
+				// 不匹配的话删除不匹配的
+				rf.logs = rf.logs[:args.PrevLogIndex]
+				reply.Success = false
 			}
 		}
-		return
+		DPrintf("%d@%d ⭐ logs: %d, commitIndex: %d, lastApplied: %d", rf.me, rf.currentTerm, len(rf.logs), rf.commitIndex, rf.lastApplied)
+	}
+	if args.LeaderCommit > rf.commitIndex {
+		rf.commitIndex = Min(args.LeaderCommit, len(rf.logs)-1)
+		DPrintf("%d@%d commitIndex: %d", rf.me, rf.currentTerm, rf.commitIndex)
+		rf.ensureApplied()
+	}
+}
+
+func (rf *Raft) ensureApplied() {
+	for rf.commitIndex > rf.lastApplied {
+		rf.lastApplied++
+		rf.applyCh <- ApplyMsg{true, rf.logs[rf.lastApplied].Command, rf.lastApplied}
+		DPrintf("%d@%d ✨ applied: %v", rf.me, rf.currentTerm, rf.logs[rf.lastApplied])
+	}
+}
+
+func (rf *Raft) ensureLeaderCommitIndex() {
+	i := rf.commitIndex
+
+	for {
+		i++
+		matched := 1
+		for peer, peerMatchIndex := range rf.matchIndex {
+			if peer == rf.me {
+				continue
+			}
+			if peerMatchIndex >= i {
+				matched++
+			}
+		}
+		majorityMatched := matched >= len(rf.peers)/2+1
+		inCurrentTerm := len(rf.logs) > i && rf.logs[i].Term == rf.currentTerm
+		if !(majorityMatched && inCurrentTerm) {
+			break
+		}
+	}
+	if i-1 != rf.commitIndex {
+		DPrintf("%d@%d ⭐ ⭐ commitIndex: %d -> %d", rf.me, rf.currentTerm, rf.commitIndex, i-1)
+		rf.commitIndex = i - 1
 	}
 }
 
@@ -274,9 +307,10 @@ func (rf *Raft) Start(
 	defer rf.mu.Unlock()
 	if rf.role == Leader {
 		rf.logs = append(rf.logs, Log{rf.currentTerm, rf.me, command})
-		DPrintf("%d@%d 😊 new command", rf.me, rf.currentTerm)
+		DPrintf("%d@%d 😊 new command: %v", rf.me, rf.currentTerm, command)
+		DPrintf("%d@%d\nlogs: %v", rf.me, rf.currentTerm, rf.logs)
 	}
-	return rf.commitIndex, rf.currentTerm, rf.role == Leader
+	return len(rf.logs) - 1, rf.currentTerm, rf.role == Leader
 }
 
 func (rf *Raft) Kill() {
@@ -357,6 +391,10 @@ func (rf *Raft) KickOffElection() {
 
 					DPrintf("%d@%d ✅ wins election", rf.me, rf.currentTerm)
 					rf.role = Leader
+					for i := range rf.nextIndex {
+						rf.nextIndex[i] = len(rf.logs)
+						rf.matchIndex[i] = -1
+					}
 					go rf.startHeartbeat()
 					return
 				}
@@ -375,21 +413,21 @@ func (rf *Raft) sendAppendEntriesLogs(peer int, term int, sync bool) {
 		DPrintf("%d@%d -> %d 💚", rf.me, rf.currentTerm, peer)
 	}
 	rf.mu.Lock()
-	prevLogIndex := rf.nextIndex[peer]
+	prevLogIndex := rf.nextIndex[peer] - 1
 	prevLogTerm := -1
 	if len(rf.logs)-1 >= prevLogIndex && prevLogIndex >= 0 {
 		prevLogTerm = rf.logs[prevLogIndex].Term
 	}
 	args := &AppendEntriesArgs{
 		Term:         term,
-		LeaderId:     rf.me,
+		LeaderID:     rf.me,
 		PrevLogIndex: prevLogIndex,
 		PrevLogTerm:  prevLogTerm,
 		LeaderCommit: rf.commitIndex,
 		Entries:      make([]Log, 0),
 	}
 	if sync {
-		args.Entries = rf.logs[Max(0, Min(prevLogIndex+1, len(rf.logs)-1)):len(rf.logs)]
+		args.Entries = rf.logs[rf.nextIndex[peer]:]
 	}
 	rf.mu.Unlock()
 	reply := &AppendEntriesReply{}
@@ -404,10 +442,17 @@ func (rf *Raft) sendAppendEntriesLogs(peer int, term int, sync bool) {
 		rf.currentTerm = reply.Term
 		rf.votedFor = nil
 	}
-	if !reply.Success {
-		rf.nextIndex[peer] = rf.nextIndex[peer] - 1
-	} else {
-		rf.matchIndex[peer] = args.PrevLogIndex + len(args.Entries)
+	if sync && len(args.Entries) > 0 {
+		if !reply.Success {
+			rf.nextIndex[peer] = Max(rf.nextIndex[peer]-1, 0)
+		} else {
+			rf.matchIndex[peer] = args.PrevLogIndex + len(args.Entries)
+			rf.nextIndex[peer] = rf.matchIndex[peer] + 1
+
+			rf.ensureLeaderCommitIndex()
+			rf.ensureApplied()
+		}
+		DPrintf("%d@%d\nnextIndex: %v\nmatchIndex: %v", rf.me, rf.currentTerm, rf.nextIndex, rf.matchIndex)
 	}
 	rf.mu.Unlock()
 }
@@ -420,6 +465,7 @@ func (rf *Raft) startHeartbeat() {
 		if rf.killed() || !isLeader {
 			break
 		}
+		DPrintf("\n\n-------------------\n%d@%d 💚 %d\n%v", rf.me, rf.currentTerm, heartbeatIndex, rf.logs)
 		for i := range rf.peers {
 			if i == rf.me {
 				continue
@@ -429,6 +475,7 @@ func (rf *Raft) startHeartbeat() {
 		}
 		rf.resetHeartbeatTimer()
 		heartbeatIndex++
+		DPrintf("%d@%d 💚 %d\n-------------------\n\n", rf.me, rf.currentTerm, heartbeatIndex)
 		<-rf.heartbeatTimer.C
 	}
 }
@@ -473,8 +520,8 @@ func Make(
 	rf.role = Follower
 
 	// Volatile state for server
-	rf.commitIndex = 0
-	rf.lastApplied = 0
+	rf.commitIndex = -1
+	rf.lastApplied = -1
 
 	// Volatile state for leaders
 	rf.matchIndex = make([]int, len(peers))
